@@ -1,5 +1,6 @@
 import { AnimatePresence } from "framer-motion";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { authApi } from "./api/authApi";
 import { InitializingScreen } from "./components/InitializingScreen";
 import { PlayerSetupModal } from "./components/PlayerSetupModal";
 import { GamePage } from "./pages/GamePage";
@@ -40,6 +41,16 @@ export default function App() {
   const [players, setPlayers] = useState<Player[]>([]);
   const [gameKey, setGameKey] = useState(0);
 
+  useEffect(() => {
+    let active = true;
+    void authApi.me().then(() => {
+      if (active) setScreen("setup");
+    }).catch(() => {
+      // A 401 is expected when there is no active session.
+    });
+    return () => { active = false; };
+  }, []);
+
   const beginSetup = () => setScreen("setup");
   const initialize = (names: string[]) => {
     setPlayers(createPlayers(names));
@@ -50,6 +61,10 @@ export default function App() {
     setPlayers(createPlayers(players.map((player) => player.name)));
     setGameKey((key) => key + 1);
     setScreen("initializing");
+  };
+
+  const returnToLogin = () => {
+    void authApi.logout().finally(() => setScreen("login"));
   };
 
   return (
@@ -73,7 +88,7 @@ export default function App() {
             key={`game-${gameKey}`}
             players={players}
             onPlayAgain={playAgain}
-            onReturnToLogin={() => setScreen("login")}
+            onReturnToLogin={returnToLogin}
           />
         )}
       </AnimatePresence>

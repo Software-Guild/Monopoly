@@ -9,6 +9,7 @@ import 'dotenv/config';
 import express, { type Request, type Response, type NextFunction } from 'express';
 import session from 'express-session';
 import connectPgSimple from 'connect-pg-simple';
+import cors from 'cors';
 import { Pool } from 'pg';
 
 import authRoutes from './api/routes/auth.routes';
@@ -31,6 +32,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 // ---------------------------------------------------------------------
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use(cors({
+  origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()) || 'http://localhost:5173',
+  credentials: true,
+}));
 
 // If running behind a reverse proxy / load balancer (Heroku, Render,
 // nginx, etc.) in production, this is required for `secure` cookies

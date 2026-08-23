@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import { FormEvent, useState } from "react";
 import { Brand } from "../components/Brand";
+import { authApi } from "../api/authApi";
 
 type LoginPageProps = {
   onLogin: () => void;
@@ -12,17 +13,25 @@ export function LoginPage({ onLogin, onSignup }: LoginPageProps) {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(true);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = (event: FormEvent<HTMLFormElement>) => {
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const nextErrors: Record<string, string> = {};
     if (!email.trim()) nextErrors.email = "Enter your email address.";
     else if (!/^\S+@\S+\.\S+$/.test(email)) nextErrors.email = "Use a valid email address.";
     if (!password) nextErrors.password = "Enter your password.";
     setErrors(nextErrors);
-    if (Object.keys(nextErrors).length === 0) {
-      if (remember) window.localStorage.setItem("india-tycoon-session", email);
+    if (Object.keys(nextErrors).length > 0) return;
+    setSubmitting(true);
+    try {
+      await authApi.login(email.trim(), password);
+      if (remember) window.localStorage.setItem("india-tycoon-session", email.trim());
       onLogin();
+    } catch (error) {
+      setErrors({ form: error instanceof Error ? error.message : "Unable to sign in." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -56,12 +65,13 @@ export function LoginPage({ onLogin, onSignup }: LoginPageProps) {
             <input id="login-password" type="password" autoComplete="current-password" placeholder="Enter your password" value={password} onChange={(event) => setPassword(event.target.value)} />
           </div>
           {errors.password && <motion.p className="field-error" initial={{ opacity: 0, x: -4 }} animate={{ opacity: 1, x: 0 }}>{errors.password}</motion.p>}
+          {errors.form && <p className="field-error">{errors.form}</p>}
 
           <div className="auth-options">
             <label><input type="checkbox" checked={remember} onChange={(event) => setRemember(event.target.checked)} /> Remember me</label>
             <button type="button" className="text-button">Forgot password?</button>
           </div>
-          <motion.button className="button button-primary button-wide" whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="submit">Enter the board <span>→</span></motion.button>
+          <motion.button className="button button-primary button-wide" disabled={submitting} whileHover={{ y: -2 }} whileTap={{ scale: 0.98 }} type="submit">{submitting ? "Signing in..." : "Enter the board"} {!submitting && <span>→</span>}</motion.button>
         </form>
         <p className="auth-switch">New to India Tycoon? <button type="button" onClick={onSignup}>Create an account</button></p>
       </motion.div>
