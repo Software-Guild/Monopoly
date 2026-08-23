@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import { useMemo, useState } from "react";
+import { AllPortfolios } from "../components/AllPortfolios";
 import { AuctionModal } from "../components/AuctionModal";
 import { Board } from "../components/Board";
 import { Brand } from "../components/Brand";
@@ -42,12 +43,13 @@ export function GamePage({ players, onPlayAgain, onReturnToLogin }: GamePageProp
     <motion.div className="game-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <header className="mobile-game-header"><Brand compact /><div><span style={{ backgroundColor: game.currentPlayer.color }} />{game.currentPlayer.name}</div><button type="button" onClick={() => setSidebarOpen(true)}>Players ☰</button></header>
       <div className="game-layout">
+        <AllPortfolios state={game.state} onSelectProperty={game.selectSpace} />
         <section className="board-column">
           <Board state={game.state} onSelectSpace={chooseBoardSpace}>
             <DiceArea state={game.state} currentPlayer={game.currentPlayer} onRoll={game.rollDice} onBuy={game.buyPendingProperty} onAuction={game.startAuction} onEndTurn={game.endTurn} onAddTime={game.addTime} />
           </Board>
         </section>
-        <PlayerSidebar state={game.state} currentPlayer={game.currentPlayer} ownedPropertyIds={game.ownedPropertyIds} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onTrade={() => game.openTrade()} onSelectProperty={(spaceId) => { game.selectSpace(spaceId); setSidebarOpen(false); }} onBankrupt={() => setBankruptcyOpen(true)} />
+        <PlayerSidebar state={game.state} open={sidebarOpen} onClose={() => setSidebarOpen(false)} onTrade={() => game.openTrade()} onBankrupt={() => setBankruptcyOpen(true)} />
       </div>
       {sidebarOpen && <button type="button" className="sidebar-scrim" aria-label="Close players panel" onClick={() => setSidebarOpen(false)} />}
 

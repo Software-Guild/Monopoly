@@ -30,6 +30,8 @@ export function Board({ state, onSelectSpace, children }: BoardProps) {
             space={space}
             status={space.type === "property" ? state.properties[space.id] : undefined}
             players={state.players.filter((player) => player.position === space.id && !player.bankrupt)}
+            ownerColor={space.type === "property" ? state.players.find((player) => player.id === state.properties[space.id]?.ownerId)?.color : undefined}
+            ownerName={space.type === "property" ? state.players.find((player) => player.id === state.properties[space.id]?.ownerId)?.name : undefined}
             position={getBoardPosition(space.id)}
             onClick={() => onSelectSpace(space.id)}
           />
