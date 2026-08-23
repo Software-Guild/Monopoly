@@ -32,6 +32,7 @@ export const useGameState = (initialPlayers: Player[]) => {
   const finishResolution = useCallback(() => {
     const latest = stateRef.current;
     dispatch({ type: "SET_PHASE", phase: latest.rollAgain ? "WAITING_FOR_ROLL" : "WAITING_FOR_END_TURN" });
+    dispatch({ type: "SET_PENDING_SPACE", spaceId: null });
   }, []);
 
   const createDebtOrPay = useCallback((playerId: string, amount: number, creditorId: string | null, reason: string) => {
