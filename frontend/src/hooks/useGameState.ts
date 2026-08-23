@@ -10,7 +10,6 @@ import {
   canSellBuilding,
   canTradeProperty,
   formatMoney,
-  getOwnedPropertyIds,
 } from "../game/gameRules";
 import type { ActivityTone, GameCard, Player, PropertySpace, TradeOffer } from "../types/game";
 
@@ -467,7 +466,6 @@ export const useGameState = (initialPlayers: Player[]) => {
     selectSpace: (spaceId: number | null) => dispatch({ type: "SELECT_SPACE", spaceId }),
     closeTrade: () => { dispatch({ type: "SET_TRADE", trade: null }); finishResolution(); },
     addTime: () => dispatch({ type: "ADD_TIME" }),
-    ownedPropertyIds: getOwnedPropertyIds(state, currentPlayer.id),
     tradeableProperties,
   };
 };

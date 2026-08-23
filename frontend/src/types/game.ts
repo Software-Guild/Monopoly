@@ -37,7 +37,7 @@ export type ActionSpace = BaseSpace & {
 export type BoardSpace = PropertySpace | ActionSpace;
 
 export type PropertyStatus = {
-  ownerId: string | null;
+  readonly ownerId: string | null;
   houses: number;
   hotel: boolean;
   mortgaged: boolean;
@@ -104,6 +104,16 @@ export type TradeOffer = {
   status: "editing" | "pending";
 };
 
+export type PropertyTransferRecord = {
+  id: string;
+  sequence: number;
+  spaceId: number;
+  fromPlayerId: string | null;
+  toPlayerId: string | null;
+  amount: number | null;
+  method: "bank-purchase" | "auction" | "trade" | "bankruptcy";
+};
+
 export type GameState = {
   players: Player[];
   properties: Record<number, PropertyStatus>;
@@ -113,6 +123,7 @@ export type GameState = {
   doublesCount: number;
   rollAgain: boolean;
   activityLog: ActivityEntry[];
+  propertyLedger: PropertyTransferRecord[];
   pendingSpaceId: number | null;
   selectedSpaceId: number | null;
   auction: AuctionState | null;

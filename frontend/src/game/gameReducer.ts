@@ -1,5 +1,5 @@
 import { boardData } from "../data/boardData";
-import type { ActivityEntry, AuctionState, Debt, GamePhase, GameState, Player, TradeOffer } from "../types/game";
+import type { ActivityEntry, AuctionState, Debt, GamePhase, GameState, Player, PropertyTransferRecord, TradeOffer } from "../types/game";
 import { getNextActivePlayerIndex, getPropertyStatusSeed } from "./gameRules";
 
 export type GameAction =
@@ -38,6 +38,15 @@ export type GameAction =
 const updatePlayer = (players: Player[], playerId: string, update: (player: Player) => Player): Player[] =>
   players.map((player) => player.id === playerId ? update(player) : player);
 
+const createTransferRecord = (
+  state: GameState,
+  transfer: Omit<PropertyTransferRecord, "id" | "sequence">,
+  offset = 1,
+): PropertyTransferRecord => {
+  const sequence = state.propertyLedger.length + offset;
+  return { ...transfer, id: `property-transfer-${sequence}`, sequence };
+};
+
 export const createInitialGameState = (players: Player[]): GameState => ({
   players,
   properties: getPropertyStatusSeed(),
@@ -47,6 +56,7 @@ export const createInitialGameState = (players: Player[]): GameState => ({
   doublesCount: 0,
   rollAgain: false,
   activityLog: [{ id: "welcome", text: `${players[0]?.name ?? "Player"} goes first. Let the journey begin!`, tone: "important" }],
+  propertyLedger: [],
   pendingSpaceId: null,
   selectedSpaceId: null,
   auction: null,
@@ -81,10 +91,18 @@ export const gameReducer = (state: GameState, action: GameAction): GameState => 
     case "SELECT_SPACE":
       return { ...state, selectedSpaceId: action.spaceId };
     case "BUY_PROPERTY":
+      if (state.properties[action.spaceId].ownerId !== null) return state;
       return {
         ...state,
         players: updatePlayer(state.players, action.playerId, (player) => ({ ...player, money: player.money - action.price })),
         properties: { ...state.properties, [action.spaceId]: { ...state.properties[action.spaceId], ownerId: action.playerId } },
+        propertyLedger: [...state.propertyLedger, createTransferRecord(state, {
+          spaceId: action.spaceId,
+          fromPlayerId: null,
+          toPlayerId: action.playerId,
+          amount: action.price,
+          method: "bank-purchase",
+        })],
         pendingSpaceId: null,
       };
     case "TRANSFER_MONEY":
@@ -106,11 +124,19 @@ export const gameReducer = (state: GameState, action: GameAction): GameState => 
       return { ...state, auction: action.auction };
     case "RESOLVE_AUCTION": {
       if (!action.winnerId) return { ...state, auction: null };
+      if (state.properties[action.spaceId].ownerId !== null) return { ...state, auction: null };
       return {
         ...state,
         auction: null,
         players: updatePlayer(state.players, action.winnerId, (player) => ({ ...player, money: player.money - action.amount })),
         properties: { ...state.properties, [action.spaceId]: { ...state.properties[action.spaceId], ownerId: action.winnerId } },
+        propertyLedger: [...state.propertyLedger, createTransferRecord(state, {
+          spaceId: action.spaceId,
+          fromPlayerId: null,
+          toPlayerId: action.winnerId,
+          amount: action.amount,
+          method: "auction",
+        })],
       };
     }
     case "SET_TRADE":
@@ -121,14 +147,23 @@ export const gameReducer = (state: GameState, action: GameAction): GameState => 
       const requested = new Set(trade.requestedPropertyIds);
       const properties = Object.fromEntries(Object.entries(state.properties).map(([id, status]) => {
         const numericId = Number(id);
-        if (offered.has(numericId)) return [numericId, { ...status, ownerId: trade.recipientId }];
-        if (requested.has(numericId)) return [numericId, { ...status, ownerId: trade.proposerId }];
+        if (offered.has(numericId) && status.ownerId === trade.proposerId) return [numericId, { ...status, ownerId: trade.recipientId }];
+        if (requested.has(numericId) && status.ownerId === trade.recipientId) return [numericId, { ...status, ownerId: trade.proposerId }];
         return [numericId, status];
       }));
+      const transfers = [
+        ...trade.offeredPropertyIds.map((spaceId) => ({ spaceId, fromPlayerId: trade.proposerId, toPlayerId: trade.recipientId })),
+        ...trade.requestedPropertyIds.map((spaceId) => ({ spaceId, fromPlayerId: trade.recipientId, toPlayerId: trade.proposerId })),
+      ].map((transfer, index) => createTransferRecord(state, {
+        ...transfer,
+        amount: null,
+        method: "trade",
+      }, index + 1));
       return {
         ...state,
         trade: null,
         properties,
+        propertyLedger: [...state.propertyLedger, ...transfers],
         players: state.players.map((player) => {
           if (player.id === trade.proposerId) return {
             ...player,
@@ -246,12 +281,22 @@ export const gameReducer = (state: GameState, action: GameAction): GameState => 
         houses: 0,
         hotel: false,
       } : status]));
+      const transfers = Object.entries(state.properties)
+        .filter(([, status]) => status.ownerId === action.playerId)
+        .map(([id], index) => createTransferRecord(state, {
+          spaceId: Number(id),
+          fromPlayerId: action.playerId,
+          toPlayerId: action.creditorId,
+          amount: null,
+          method: "bankruptcy",
+        }, index + 1));
       const activePlayers = players.filter((player) => !player.bankrupt);
       const gameOver = activePlayers.length === 1;
       return {
         ...state,
         players,
         properties,
+        propertyLedger: [...state.propertyLedger, ...transfers],
         debt: null,
         selectedSpaceId: null,
         winnerId: gameOver ? activePlayers[0].id : null,
