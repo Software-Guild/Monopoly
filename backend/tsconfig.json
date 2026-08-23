@@ -1,0 +1,26 @@
+{
+  "compilerOptions": {
+    /* File Layout */
+    "rootDir": "./app",
+    "outDir": "./dist",
+
+    /* Environment Settings */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "esnext",
+    "types": ["node"],
+
+    /* Other Outputs */
+    "sourceMap": true,
+    "declaration": true,
+    "declarationMap": true,
+
+    /* Recommended & Stricter Typechecking */
+    "strict": true,
+    "esModuleInterop": true,
+    "noUncheckedIndexedAccess": true,
+    "moduleDetection": "force",
+    "skipLibCheck": true
+  },
+  "include": ["app/**/*"]
+}

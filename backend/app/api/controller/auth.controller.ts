@@ -1,26 +1,36 @@
-// app/api/controller/auth.controller.js
+// app/api/controller/auth.controller.ts
 //
 // Request handlers for all /api/auth/* endpoints. Controllers stay
 // thin: they validate input (via Zod schemas), talk to Prisma / the
 // Bloom filter, and shape the HTTP response. Password hashing uses
 // bcrypt.
 
-const bcrypt = require('bcrypt');
-const prisma = require('../../models/prismaClient');
-const usernameBloomFilter = require('../../models/bloomFilter');
-const {
+import bcrypt from 'bcrypt';
+import type { Request, Response } from 'express';
+import type { User } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import prisma from '../../models/prismaClient';
+import usernameBloomFilter from '../../models/bloomFilter';
+import {
   registerSchema,
   loginSchema,
   checkUsernameQuerySchema,
-} = require('../../schema/auth.schema');
+} from '../../schema/auth.schema';
 
 const BCRYPT_SALT_ROUNDS = 12;
+
+interface PublicUser {
+  id: string;
+  username: string;
+  email: string;
+  createdAt: Date;
+}
 
 /**
  * Strips sensitive fields before sending a user object back to the
  * client. Never send the password hash to the frontend.
  */
-function toPublicUser(user) {
+function toPublicUser(user: User): PublicUser {
   return {
     id: user.id,
     username: user.username,
@@ -32,7 +42,7 @@ function toPublicUser(user) {
 // -----------------------------------------------------------------------
 // POST /api/auth/register
 // -----------------------------------------------------------------------
-async function register(req, res) {
+export async function register(req: Request, res: Response): Promise<Response | void> {
   // 1. Validate input shape (email format, password === confirmPassword,
   //    username charset/length, etc.)
   const parsed = registerSchema.safeParse(req.body);
@@ -108,16 +118,17 @@ async function register(req, res) {
     req.session.regenerate((err) => {
       if (err) {
         console.error('[auth.register] session regenerate error:', err);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
           message: 'Registration succeeded but failed to start session',
         });
+        return;
       }
 
       req.session.userId = user.id;
       req.session.username = user.username;
 
-      return res.status(201).json({
+      res.status(201).json({
         success: true,
         message: 'Registration successful',
         user: toPublicUser(user),
@@ -127,8 +138,11 @@ async function register(req, res) {
     // Handle a rare race condition: two requests pass the checks above
     // concurrently and both attempt to insert the same unique
     // username/email. Prisma surfaces this as error code P2002.
-    if (error.code === 'P2002') {
-      const target = error.meta?.target?.join(', ') || 'field';
+    if (
+      error instanceof Prisma.PrismaClientKnownRequestError &&
+      error.code === 'P2002'
+    ) {
+      const target = (error.meta?.target as string[] | undefined)?.join(', ') || 'field';
       return res.status(409).json({
         success: false,
         message: `${target} is already taken`,
@@ -146,7 +160,7 @@ async function register(req, res) {
 // -----------------------------------------------------------------------
 // POST /api/auth/login
 // -----------------------------------------------------------------------
-async function login(req, res) {
+export async function login(req: Request, res: Response): Promise<Response | void> {
   const parsed = loginSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({
@@ -183,16 +197,17 @@ async function login(req, res) {
     req.session.regenerate((err) => {
       if (err) {
         console.error('[auth.login] session regenerate error:', err);
-        return res.status(500).json({
+        res.status(500).json({
           success: false,
           message: 'Login failed while starting session',
         });
+        return;
       }
 
       req.session.userId = user.id;
       req.session.username = user.username;
 
-      return res.status(200).json({
+      res.status(200).json({
         success: true,
         message: 'Login successful',
         user: toPublicUser(user),
@@ -210,7 +225,7 @@ async function login(req, res) {
 // -----------------------------------------------------------------------
 // POST /api/auth/logout
 // -----------------------------------------------------------------------
-async function logout(req, res) {
+export async function logout(req: Request, res: Response): Promise<Response | void> {
   if (!req.session) {
     return res.status(200).json({ success: true, message: 'Already logged out' });
   }
@@ -218,17 +233,18 @@ async function logout(req, res) {
   req.session.destroy((err) => {
     if (err) {
       console.error('[auth.logout] error:', err);
-      return res.status(500).json({
+      res.status(500).json({
         success: false,
         message: 'Failed to log out',
       });
+      return;
     }
 
     // Clear the session cookie on the client. Name must match the
-    // `name` option passed to express-session in index.js.
+    // `name` option passed to express-session in index.ts.
     res.clearCookie(process.env.SESSION_COOKIE_NAME || 'monopoly.sid');
 
-    return res.status(200).json({
+    res.status(200).json({
       success: true,
       message: 'Logged out successfully',
     });
@@ -238,7 +254,7 @@ async function logout(req, res) {
 // -----------------------------------------------------------------------
 // GET /api/auth/me
 // -----------------------------------------------------------------------
-async function me(req, res) {
+export async function me(req: Request, res: Response): Promise<Response | void> {
   if (!req.session || !req.session.userId) {
     return res.status(401).json({
       success: false,
@@ -276,7 +292,7 @@ async function me(req, res) {
 // -----------------------------------------------------------------------
 // GET /api/auth/check-username?username=...
 // -----------------------------------------------------------------------
-async function checkUsername(req, res) {
+export async function checkUsername(req: Request, res: Response): Promise<Response> {
   const parsed = checkUsernameQuerySchema.safeParse(req.query);
   if (!parsed.success) {
     return res.status(400).json({
@@ -316,11 +332,3 @@ async function checkUsername(req, res) {
     });
   }
 }
-
-module.exports = {
-  register,
-  login,
-  logout,
-  me,
-  checkUsername,
-};

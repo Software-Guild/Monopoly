@@ -1,9 +1,9 @@
-// app/schema/auth.schema.js
+// app/schema/auth.schema.ts
 // Zod schemas used to validate incoming request bodies/queries for the
 // auth API. Keeping validation here (rather than in controllers) keeps
 // the controller logic focused on orchestration.
 
-const { z } = require('zod');
+import { z } from 'zod';
 
 // Reusable primitives -------------------------------------------------
 
@@ -40,7 +40,7 @@ const passwordSchema = z
 
 // Endpoint schemas ------------------------------------------------------
 
-const registerSchema = z
+export const registerSchema = z
   .object({
     username: usernameSchema,
     email: emailSchema,
@@ -52,7 +52,7 @@ const registerSchema = z
     path: ['confirmPassword'],
   });
 
-const loginSchema = z
+export const loginSchema = z
   .object({
     email: emailSchema.optional(),
     username: usernameSchema.optional(),
@@ -63,12 +63,12 @@ const loginSchema = z
     path: ['email'],
   });
 
-const checkUsernameQuerySchema = z.object({
+export const checkUsernameQuerySchema = z.object({
   username: usernameSchema,
 });
 
-module.exports = {
-  registerSchema,
-  loginSchema,
-  checkUsernameQuerySchema,
-};
+// Inferred TypeScript types, derived directly from the schemas so
+// validation rules and static types can never drift apart.
+export type RegisterInput = z.infer<typeof registerSchema>;
+export type LoginInput = z.infer<typeof loginSchema>;
+export type CheckUsernameQuery = z.infer<typeof checkUsernameQuerySchema>;
