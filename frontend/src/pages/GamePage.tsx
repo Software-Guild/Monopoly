@@ -41,6 +41,7 @@ export function GamePage({ players, onPlayAgain, onReturnToLogin }: GamePageProp
 
   return (
     <motion.div className="game-page" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+      {game.error && <div className="game-error-banner" role="alert">Backend: {game.error}</div>}
       <header className="mobile-game-header"><Brand compact /><div><span style={{ backgroundColor: game.currentPlayer.color }} />{game.currentPlayer.name}</div><button type="button" onClick={() => setSidebarOpen(true)}>Players ☰</button></header>
       <div className="game-layout">
         <AllPortfolios state={game.state} onSelectProperty={game.selectSpace} />

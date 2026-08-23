@@ -110,7 +110,7 @@ button:disabled { cursor: not-allowed; opacity: .42; filter: saturate(.5); }
 .initializing-page > .brand { position: fixed; left: 24px; top: 20px; }
 .order-card { width: min(540px, 100%); padding: 35px; border: 1px solid rgba(255,255,255,.08); border-radius: 22px; background: rgba(24,18,41,.94); box-shadow: 0 30px 80px rgba(0,0,0,.4); text-align: center; }
 .order-card h1 { margin: 9px 0 28px; font-size: 25px; }
-.order-dice { display: flex; justify-content: center; gap: 12px; margin-bottom: 24px; font-size: 52px; }
+.order-dice { display: flex; justify-content: center; margin-bottom: 24px; min-height: 92px; }
 .order-rolls { display: grid; gap: 8px; }
 .order-row { display: grid; grid-template-columns: 34px minmax(0,1fr) 80px 35px; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: #100d1a; text-align: left; }
 .avatar-dot { display: grid; width: 30px; height: 30px; place-items: center; border-radius: 50%; color: #141020; font-weight: 900; }
@@ -118,6 +118,7 @@ button:disabled { cursor: not-allowed; opacity: .42; filter: saturate(.5); }
 
 /* Game shell */
 .game-page { min-height: 100vh; background: #0b0914; }
+.game-error-banner { position: fixed; z-index: 120; top: 12px; left: 50%; transform: translateX(-50%); max-width: min(620px, calc(100vw - 24px)); padding: 10px 16px; border: 1px solid #ff786d; border-radius: 10px; background: #3a1720; color: #ffd8d4; box-shadow: 0 12px 34px #0009; font-weight: 700; }
 .game-layout { display: grid; min-height: 100vh; grid-template-columns: clamp(190px, 16vw, 260px) minmax(0,1fr) clamp(300px, 24vw, 360px); }
 .board-column { display: flex; min-width: 0; align-items: center; justify-content: center; padding: 8px; }
 .board-frame { width: min(100%, calc(100vh - 16px)); aspect-ratio: 1; overflow: hidden; border: 1px solid rgba(255,255,255,.06); border-radius: 12px; background: #0d0a18; box-shadow: 0 18px 70px rgba(0,0,0,.42); container-type: inline-size; }

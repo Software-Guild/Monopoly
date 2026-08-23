@@ -27,7 +27,7 @@ export function DiceArea({ state, currentPlayer, onRoll, onBuy, onAuction, onEnd
       <div className="turn-banner"><span style={{ backgroundColor: currentPlayer.color }} /> <b>{currentPlayer.name}</b> <em>Current turn</em></div>
       <div className="turn-timer"><span className="timer-ring" style={{ background: `conic-gradient(#eea63b ${timerProgress}%, #524265 0)` }} aria-hidden="true" /> <b>{minutes}:{seconds}</b>{state.turnSeconds < 60 && <button type="button" onClick={onAddTime}>⏱ Ask for more time</button>}</div>
       <Dice dice={state.dice} rolling={state.phase === "ROLLING"} />
-      <div className="dice-total">{state.phase === "ROLLING" ? "Rolling…" : `Dice total: ${state.dice[0] + state.dice[1]}`}</div>
+      <div className="dice-total">{state.phase === "ROLLING" ? "Backend rolling…" : state.dice ? `Dice total: ${state.dice[0] + state.dice[1]}` : "Waiting for the backend roll"}</div>
       <div className="center-actions">
         {state.phase === "WAITING_FOR_ROLL" && <motion.button type="button" className="button button-primary" whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }} onClick={onRoll}>⚄ Roll the dice</motion.button>}
         {state.phase === "ROLLING" || state.phase === "MOVING" || state.phase === "RESOLVING_SPACE" ? <button type="button" className="button button-primary" disabled>{state.phase === "MOVING" ? "Moving token…" : "Rolling…"}</button> : null}

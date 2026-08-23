@@ -114,16 +114,36 @@ export type PropertyTransferRecord = {
   method: "bank-purchase" | "auction" | "trade" | "bankruptcy";
 };
 
+export type CardTransactionRecord = {
+  id: string;
+  sequence: number;
+  cardId: string;
+  deck: "treasure" | "surprise";
+  title: string;
+  text: string;
+  effectType: string;
+  playerId: string;
+  positionBefore: number;
+  positionAfter: number;
+  inJailBefore: boolean;
+  inJailAfter: boolean;
+  retainedByPlayer: boolean;
+  cashChanges: Array<{ playerId: string; before: number; after: number; delta: number }>;
+  propertyTransferIds: string[];
+  completed: boolean;
+};
+
 export type GameState = {
   players: Player[];
   properties: Record<number, PropertyStatus>;
   currentPlayerIndex: number;
   phase: GamePhase;
-  dice: [number, number];
+  dice: [number, number] | null;
   doublesCount: number;
   rollAgain: boolean;
   activityLog: ActivityEntry[];
   propertyLedger: PropertyTransferRecord[];
+  cardLedger: CardTransactionRecord[];
   pendingSpaceId: number | null;
   selectedSpaceId: number | null;
   auction: AuctionState | null;

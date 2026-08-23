@@ -187,6 +187,8 @@ export interface Card {
   /** Stable identifier, unique within the deck. Safe to persist. */
   id: string;
   deck: DeckName;
+  /** Short heading shown on the card. */
+  title: string;
   /** Text as printed on the card, shown to players verbatim. */
   text: string;
   effect: CardEffect;
@@ -226,6 +228,53 @@ export interface PropertyState {
   /** Houses built, or HOTEL_LEVEL for a hotel. Always 0 for stations/utilities. */
   houses: number;
   mortgaged: boolean;
+}
+
+export type PropertyTransferMethod =
+  | 'BANK_PURCHASE'
+  | 'AUCTION'
+  | 'TRADE'
+  | 'BANKRUPTCY';
+
+/** Durable deed history used by clients to show who acquired what and how. */
+export interface PropertyTransferRecord {
+  id: string;
+  sequence: number;
+  position: number;
+  fromPlayerId: string | null;
+  toPlayerId: string | null;
+  amount: number | null;
+  method: PropertyTransferMethod;
+}
+
+export interface CardCashChange {
+  playerId: string;
+  before: number;
+  after: number;
+  delta: number;
+}
+
+/** Complete audit record for a card and any landing it triggered. */
+export interface CardTransactionRecord {
+  id: string;
+  sequence: number;
+  cardId: string;
+  deck: DeckName;
+  title: string;
+  text: string;
+  effectType: CardEffectType;
+  playerId: string;
+  positionBefore: number;
+  positionAfter: number;
+  inJailBefore: boolean;
+  inJailAfter: boolean;
+  retainedByPlayer: boolean;
+  cashChanges: CardCashChange[];
+  /** Deed-ledger sequence before the card began resolving. */
+  propertyTransferSequenceStart: number;
+  propertyTransferIds: string[];
+  /** False only while a movement card's destination is still resolving. */
+  completed: boolean;
 }
 
 /**
@@ -424,6 +473,16 @@ export interface GameState {
    * free to take a normal turn action.
    */
   pending: Pending | null;
+  /** The most recent authoritative backend roll; null before the first roll. */
+  lastDice: DiceRoll | null;
+  /** The most recently resolved card, allowing the client to present it. */
+  lastCard: Card | null;
+  /** True after the engine has completed the turn and is waiting for End Turn. */
+  awaitingEndTurn: boolean;
+  /** Complete deed-transfer history for ownership UI and dispute-free replay. */
+  propertyTransfers: PropertyTransferRecord[];
+  /** Complete card-resolution and money/movement history. */
+  cardTransactions: CardTransactionRecord[];
   turnCount: number;
   winnerId: string | null;
   log: string[];
@@ -439,3 +498,18 @@ export interface DiceRoll {
 
 /** Injected so tests can supply deterministic rolls. */
 export type DiceRoller = () => DiceRoll;
+
+export interface InitialOrderRoll {
+  playerId: string;
+  dice: DiceRoll;
+}
+
+export interface InitialOrderRound {
+  round: number;
+  rolls: InitialOrderRoll[];
+}
+
+export interface InitialOrderResult {
+  orderedPlayerIds: string[];
+  rounds: InitialOrderRound[];
+}

@@ -1,5 +1,8 @@
 import { boardData, purchasableSpaces } from "../data/boardData";
-import type { GameState, Player, PropertySpace, PropertyStatus } from "../types/game";
+import type { GameState, PropertySpace } from "../types/game";
+
+// Presentation selectors only. The backend engine validates and performs
+// every game mutation; these helpers merely enable/disable matching UI controls.
 
 export const formatMoney = (amount: number): string => `₹${Math.max(0, Math.round(amount)).toLocaleString("en-IN")}`;
 
@@ -22,31 +25,6 @@ export const groupHasBuildings = (state: GameState, group: string): boolean =>
   purchasableSpaces
     .filter((space) => space.group === group)
     .some((space) => state.properties[space.id]?.houses > 0 || state.properties[space.id]?.hotel);
-
-export const calculateRent = (state: GameState, space: PropertySpace, diceTotal: number): number => {
-  const status = state.properties[space.id];
-  if (!status?.ownerId || status.mortgaged) return 0;
-
-  if (space.propertyKind === "station") {
-    const count = purchasableSpaces.filter(
-      (candidate) => candidate.propertyKind === "station" && state.properties[candidate.id]?.ownerId === status.ownerId,
-    ).length;
-    return [0, 25, 50, 100, 200][count] ?? 0;
-  }
-
-  if (space.propertyKind === "utility") {
-    const count = purchasableSpaces.filter(
-      (candidate) => candidate.propertyKind === "utility" && state.properties[candidate.id]?.ownerId === status.ownerId,
-    ).length;
-    return diceTotal * (count === 2 ? 10 : 4);
-  }
-
-  if (!space.rent) return 0;
-  if (status.hotel) return space.rent.hotel;
-  if (status.houses > 0) return [space.rent.base, space.rent.house1, space.rent.house2, space.rent.house3, space.rent.house4][status.houses];
-  if (space.group && ownsCompleteGroup(state, status.ownerId, space.group) && !groupHasMortgage(state, space.group)) return space.rent.monopoly;
-  return space.rent.base;
-};
 
 export const canBuild = (state: GameState, playerId: string, space: PropertySpace): boolean => {
   if (space.propertyKind !== "site" || !space.group || !space.houseCost) return false;
@@ -87,19 +65,6 @@ export const canMortgage = (state: GameState, playerId: string, space: PropertyS
 
 export const canTradeProperty = (state: GameState, space: PropertySpace): boolean =>
   !space.group || !groupHasBuildings(state, space.group);
-
-export const getNextActivePlayerIndex = (players: Player[], currentIndex: number): number => {
-  for (let offset = 1; offset <= players.length; offset += 1) {
-    const index = (currentIndex + offset) % players.length;
-    if (!players[index].bankrupt) return index;
-  }
-  return currentIndex;
-};
-
-export const getPropertyStatusSeed = (): Record<number, PropertyStatus> =>
-  Object.fromEntries(purchasableSpaces.map((space) => [space.id, { ownerId: null, houses: 0, hotel: false, mortgaged: false }]));
-
-export const getBoardSpace = (id: number) => boardData[id];
 
 export const getPlayerNetWorth = (state: GameState, playerId: string): number => {
   const player = state.players.find((candidate) => candidate.id === playerId);

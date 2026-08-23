@@ -1,16 +1,19 @@
 import type { BoardSpace, PropertySpace, RentTable } from "../types/game";
 
-const rentFor = (price: number): RentTable => {
-  const base = Math.max(2, Math.round(price / 12));
-  return {
-    base,
-    monopoly: base * 2,
-    house1: Math.round(price * 0.45),
-    house2: Math.round(price * 1.35),
-    house3: Math.round(price * 3.2),
-    house4: Math.round(price * 4.1),
-    hotel: Math.round(price * 5.2),
-  };
+const siteRents: Record<number, readonly [number, number, number, number, number, number]> = {
+  1: [2, 10, 30, 90, 160, 250], 3: [4, 20, 60, 180, 320, 450],
+  6: [6, 30, 90, 270, 400, 550], 8: [6, 30, 90, 270, 400, 550], 9: [8, 40, 100, 300, 450, 600],
+  11: [10, 50, 150, 450, 625, 750], 13: [10, 50, 150, 450, 625, 750], 14: [12, 60, 180, 500, 700, 900],
+  16: [14, 70, 200, 550, 750, 950], 18: [14, 70, 200, 550, 750, 950], 19: [16, 80, 220, 600, 800, 1000],
+  21: [18, 90, 250, 700, 875, 1050], 23: [18, 90, 250, 700, 875, 1050], 24: [20, 100, 300, 750, 925, 1100],
+  26: [22, 110, 330, 800, 975, 1150], 27: [22, 110, 330, 800, 975, 1150], 29: [24, 120, 360, 850, 1025, 1200],
+  31: [26, 130, 390, 900, 1100, 1275], 32: [26, 130, 390, 900, 1100, 1275], 34: [28, 150, 450, 1000, 1200, 1400],
+  37: [35, 175, 500, 1100, 1300, 1500], 39: [50, 200, 600, 1400, 1700, 2000],
+};
+
+const rentFor = (id: number): RentTable => {
+  const [base, house1, house2, house3, house4, hotel] = siteRents[id];
+  return { base, monopoly: base * 2, house1, house2, house3, house4, hotel };
 };
 
 const site = (id: number, name: string, shortName: string, state: string, groupColor: string, price: number, houseCost: number): PropertySpace => ({
@@ -25,7 +28,7 @@ const site = (id: number, name: string, shortName: string, state: string, groupC
   price,
   mortgageValue: price / 2,
   houseCost,
-  rent: rentFor(price),
+  rent: rentFor(id),
 });
 
 const station = (id: number, name: string, shortName: string): PropertySpace => ({

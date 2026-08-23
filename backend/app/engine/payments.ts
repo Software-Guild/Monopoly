@@ -11,6 +11,7 @@ import {
 } from '../models/index.js';
 import type { GameState, Player } from '../models/index.js';
 import { log } from './log.js';
+import { recordPropertyTransfer } from './ownership.js';
 
 export interface ChargeResult {
   /** How much actually reached the creditor. */
@@ -143,7 +144,7 @@ function liquidate(state: GameState, player: Player, target: number): void {
   }
 }
 
-function declareBankrupt(
+export function declareBankrupt(
   state: GameState,
   debtor: Player,
   creditor: Player | null,
@@ -173,6 +174,13 @@ function declareBankrupt(
       if (!holding) continue;
       holding.ownerId = creditor.id;
       creditor.properties.push(position);
+      recordPropertyTransfer(state, {
+        position,
+        fromPlayerId: debtor.id,
+        toPlayerId: creditor.id,
+        amount: null,
+        method: 'BANKRUPTCY',
+      });
       if (!holding.mortgaged) continue;
 
       const tile = getTile(position);
@@ -194,6 +202,13 @@ function declareBankrupt(
       holding.ownerId = null;
       holding.mortgaged = false;
       toAuction.push(position);
+      recordPropertyTransfer(state, {
+        position,
+        fromPlayerId: debtor.id,
+        toPlayerId: null,
+        amount: null,
+        method: 'BANKRUPTCY',
+      });
     }
     // Held cards go back to the bottom of the pile they came from.
     for (const cardId of debtor.heldCards) {
