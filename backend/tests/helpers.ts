@@ -6,7 +6,7 @@ import {
   OWNABLE_POSITIONS,
   STARTING_CASH,
 } from '../app/models/index.js';
-import type { GameState, Player, PropertyState } from '../app/models/index.js';
+import type { DiceRoller, GameState, Player, PropertyState } from '../app/models/index.js';
 
 /** London board positions used across the tests, by name. */
 export const TILE = {
@@ -96,4 +96,28 @@ export function give(
 /** Houses standing on each of the given positions, in order. */
 export function housesOn(state: GameState, positions: number[]): number[] {
   return positions.map((p) => state.properties[p]?.houses ?? 0);
+}
+
+/**
+ * A DiceRoller that returns a fixed sequence, cycling once exhausted so a
+ * long loop never runs dry.
+ */
+export function scriptedRoller(rolls: Array<[number, number]>): DiceRoller {
+  if (rolls.length === 0) throw new Error('scriptedRoller needs at least one roll');
+  let index = 0;
+  return () => {
+    const [die1, die2] = rolls[index % rolls.length]!;
+    index += 1;
+    return { die1, die2, total: die1 + die2, isDouble: die1 === die2 };
+  };
+}
+
+/** Hand every ownable tile to one player, so movement tests stay quiet. */
+export function ownEverything(state: GameState, player: Player): void {
+  for (const position of OWNABLE_POSITIONS) {
+    const holding = state.properties[position];
+    if (!holding) continue;
+    holding.ownerId = player.id;
+    player.properties.push(position);
+  }
 }

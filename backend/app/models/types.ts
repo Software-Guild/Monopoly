@@ -253,6 +253,17 @@ interface BasePending {
   playerId: string;
 }
 
+/**
+ * The player is on turn and has not rolled yet. The game genuinely waits
+ * here, so it is a pending decision like any other rather than a special
+ * case: a UI renders a Roll button, an AI answers at once.
+ */
+export interface RollPending extends BasePending {
+  type: 'ROLL';
+  /** Doubles already rolled this turn. A third sends the player to Jail. */
+  doublesSoFar: number;
+}
+
 /** Landed on an unowned ownable tile: buy at list price, or decline. */
 export interface BuyPropertyPending extends BasePending {
   type: 'BUY_PROPERTY';
@@ -352,6 +363,7 @@ export interface MortgagedTransferPending extends BasePending {
 }
 
 export type Pending =
+  | RollPending
   | BuyPropertyPending
   | AuctionPending
   | JailPending
