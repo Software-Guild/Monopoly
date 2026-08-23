@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { InitializationRoll, Player } from "../types/game";
 import { Brand } from "./Brand";
 
@@ -13,11 +13,8 @@ const roll = (): [number, number] => [Math.floor(Math.random() * 6) + 1, Math.fl
 export function InitializingScreen({ players, onComplete }: InitializingScreenProps) {
   const [rolls, setRolls] = useState<InitializationRoll[]>([]);
   const [message, setMessage] = useState("Determining player order…");
-  const started = useRef(false);
 
   useEffect(() => {
-    if (started.current) return;
-    started.current = true;
     let cancelled = false;
     const run = async () => {
       const initial = players.map((player) => {
