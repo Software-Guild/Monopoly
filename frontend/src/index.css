@@ -148,7 +148,7 @@ button:disabled { cursor: not-allowed; opacity: .42; filter: saturate(.5); }
 .turn-banner { display: none; align-items: center; gap: 6px; margin-bottom: 3%; color: #ddd5e9; font-size: clamp(8px, 1.25cqi, 12px); }.turn-banner span { width: 8px; height: 8px; border-radius: 50%; }.turn-banner em { color: #7f748f; font-style: normal; }
 .turn-timer { display: flex; min-height: 30px; align-items: center; gap: 8px; margin-bottom: 5%; padding: 5px 10px; border-radius: 18px; background: #251a3d; color: #f0a83f; font-size: clamp(8px, 1.3cqi, 12px); }
 .turn-timer button { min-height: 24px; border: 0; border-radius: 12px; padding: 2px 9px; background: #7445e7; color: white; font-size: inherit; font-weight: 700; cursor: pointer; }
-.timer-ring { width: 17px; height: 17px; border: 3px solid #eea63b; border-right-color: #524265; border-radius: 50%; }
+.timer-ring { width: 17px; height: 17px; border-radius: 50%; mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 0); transition: background .4s linear; }
 .dice-pair { display: flex; align-items: center; justify-content: center; gap: clamp(16px, 3.2cqi, 30px); perspective: 900px; perspective-origin: 50% 38%; }
 .die-stage { --die-size: clamp(43px, 11.5cqi, 90px); position: relative; width: var(--die-size); height: var(--die-size); transform-style: preserve-3d; filter: drop-shadow(0 16px 13px rgba(0,0,0,.42)); }
 .die-cube { position: absolute; width: 100%; height: 100%; inset: 0; transform-style: preserve-3d; will-change: transform; }
