@@ -194,6 +194,7 @@ function declareBankrupt(
       holding.ownerId = null;
       holding.mortgaged = false;
       toAuction.push(position);
+      state.pendingAuctions.push(position);
     }
     // Held cards go back to the bottom of the pile they came from.
     for (const cardId of debtor.heldCards) {

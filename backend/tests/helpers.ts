@@ -69,6 +69,7 @@ export function makeGame(players: Player[] = [makePlayer('p1', 'Ada'), makePlaye
       CHANCE: CHANCE_CARDS.map((c) => c.id),
       COMMUNITY_CHEST: COMMUNITY_CHEST_CARDS.map((c) => c.id),
     },
+    pendingAuctions: [],
     doublesCount: 0,
     hasRolled: false,
     pending: null,

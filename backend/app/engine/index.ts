@@ -1,4 +1,5 @@
 export * from './agents.js';
+export * from './building.js';
 export * from './cards.js';
 export * from './dice.js';
 export * from './holdings.js';

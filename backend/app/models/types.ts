@@ -415,6 +415,13 @@ export interface GameState {
    * entirely while held, and returns to the back when played or given up.
    */
   decks: Record<DeckName, string[]>;
+  /**
+   * Tiles the Bank holds and still owes an auction on, after a player
+   * went bankrupt to it. Queued on the state rather than handed back,
+   * because the charge that causes it can happen deep inside a card
+   * effect, while the auction itself has to wait on the players.
+   */
+  pendingAuctions: number[];
   /** Consecutive doubles rolled by the current player this turn. */
   doublesCount: number;
   /** Set once the player has rolled; blocks a second roll in one turn. */

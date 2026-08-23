@@ -276,7 +276,34 @@ async function resolveJail(
  * Play one player's whole turn: their roll or rolls, the tiles they land on,
  * and the doubles rule that either grants another go or sends them to Jail.
  */
+/**
+ * Auction everything the Bank has taken from a bankrupt player, one Site
+ * at a time. A bid that bankrupts its winner queues more, so this drains
+ * until nothing is left owing.
+ */
+export async function drainAuctions(
+  state: GameState,
+  agents: AgentsByPlayer,
+): Promise<void> {
+  while (state.pendingAuctions.length > 0) {
+    const position = state.pendingAuctions.shift();
+    if (position === undefined) return;
+    await auction(state, position, agents);
+  }
+}
+
 export async function takeTurn(
+  state: GameState,
+  agents: AgentsByPlayer,
+  options: GameOptions,
+): Promise<void> {
+  await playTurn(state, agents, options);
+  // Going bankrupt to the Bank leaves deeds behind, and the rulebook has
+  // the Banker auction each of them however the turn ended.
+  await drainAuctions(state, agents);
+}
+
+async function playTurn(
   state: GameState,
   agents: AgentsByPlayer,
   options: GameOptions,
