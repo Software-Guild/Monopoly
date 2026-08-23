@@ -19,12 +19,13 @@ export function DiceArea({ state, currentPlayer, onRoll, onBuy, onAuction, onEnd
   const pending = state.pendingSpaceId === null ? null : getSpace(state.pendingSpaceId);
   const minutes = Math.floor(state.turnSeconds / 60);
   const seconds = `${state.turnSeconds % 60}`.padStart(2, "0");
+  const timerProgress = Math.min(100, Math.max(0, (state.turnSeconds / 120) * 100));
   const canBuy = pending?.type === "property" && currentPlayer.money >= pending.price;
 
   return (
     <div className="dice-area">
       <div className="turn-banner"><span style={{ backgroundColor: currentPlayer.color }} /> <b>{currentPlayer.name}</b> <em>Current turn</em></div>
-      <div className="turn-timer"><span className="timer-ring" /> <b>{minutes}:{seconds}</b>{state.turnSeconds < 60 && <button type="button" onClick={onAddTime}>⏱ Ask for more time</button>}</div>
+      <div className="turn-timer"><span className="timer-ring" style={{ background: `conic-gradient(#eea63b ${timerProgress}%, #524265 0)` }} aria-hidden="true" /> <b>{minutes}:{seconds}</b>{state.turnSeconds < 60 && <button type="button" onClick={onAddTime}>⏱ Ask for more time</button>}</div>
       <Dice dice={state.dice} rolling={state.phase === "ROLLING"} />
       <div className="dice-total">{state.phase === "ROLLING" ? "Rolling…" : `Dice total: ${state.dice[0] + state.dice[1]}`}</div>
       <div className="center-actions">
