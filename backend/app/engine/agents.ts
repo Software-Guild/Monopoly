@@ -12,7 +12,11 @@ export type Decision =
   | { type: 'BUY_PROPERTY'; buy: boolean }
   /** `bid` of null drops out of the auction. */
   | { type: 'AUCTION_BID'; bid: number | null }
-  | { type: 'JAIL_DECISION'; action: 'PAY' | 'CARD' | 'ROLL' };
+  | { type: 'JAIL_DECISION'; action: 'PAY' | 'CARD' | 'ROLL' }
+  | { type: 'RAISE_FUNDS'; action: 'MORTGAGE' | 'SELL_BUILDING' | 'BANKRUPT'; position?: number }
+  | { type: 'TRADE_OFFER'; accept: boolean }
+  | { type: 'SETTLEMENT_OFFER'; accept: boolean }
+  | { type: 'MORTGAGED_TRANSFER'; action: 'CLEAR' | 'KEEP'; position: number };
 
 /**
  * Whoever answers for a player. The turn loop awaits this and does not care
@@ -157,8 +161,20 @@ export class AiAgent implements PlayerAgent {
         return { type: 'JAIL_DECISION', action: 'ROLL' };
       }
 
+      case 'RAISE_FUNDS':
+        return { type: 'RAISE_FUNDS', action: 'BANKRUPT' };
+
+      case 'TRADE_OFFER':
+        return { type: 'TRADE_OFFER', accept: false };
+
+      case 'SETTLEMENT_OFFER':
+        return { type: 'SETTLEMENT_OFFER', accept: true };
+
+      case 'MORTGAGED_TRANSFER':
+        return { type: 'MORTGAGED_TRANSFER', action: 'KEEP', position: pending.positions[0]! };
+
       default:
-        throw new Error(`AI cannot answer a ${pending.type} decision`);
+        throw new Error('AI received an unsupported decision');
     }
   }
 }

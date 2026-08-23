@@ -8,10 +8,11 @@ import {
 import type { DiceRoller, GameState, Player } from '../models/index.js';
 import { agentFor } from './agents.js';
 import type { AgentsByPlayer } from './agents.js';
-import { deckForTile, drawAndApply, useJailCard } from './cards.js';
+import { completeCardTransaction, deckForTile, drawAndApply, useJailCard } from './cards.js';
 import { ownerOf } from './holdings.js';
 import { log } from './log.js';
 import { advance, goToJail } from './movement.js';
+import { recordBankAcquisition } from './ownership.js';
 import { charge } from './payments.js';
 import { rentFor } from './rent.js';
 
@@ -36,6 +37,12 @@ export interface GameOptions {
   now?: () => number;
   /** Stop after this many turns. A safety net for AI-only games. */
   maxTurns?: number;
+}
+
+function rollForState(state: GameState, options: GameOptions) {
+  const dice = options.roll();
+  state.lastDice = dice;
+  return dice;
 }
 
 function currentPlayer(state: GameState): Player {
@@ -110,7 +117,7 @@ export async function auction(
     log(state, `Nobody bid for ${tile.name}; it stays with the Bank.`);
     return;
   }
-  transferFromBank(state, highestBidderId, position, highestBid);
+  transferFromBank(state, highestBidderId, position, highestBid, 'AUCTION');
 }
 
 function transferFromBank(
@@ -118,6 +125,7 @@ function transferFromBank(
   buyerId: string,
   position: number,
   price: number,
+  method: 'BANK_PURCHASE' | 'AUCTION',
 ): void {
   const buyer = state.players.find((p) => p.id === buyerId);
   const holding = state.properties[position];
@@ -127,6 +135,7 @@ function transferFromBank(
   if (buyer.bankrupt) return;
   holding.ownerId = buyerId;
   buyer.properties.push(position);
+  recordBankAcquisition(state, position, buyerId, price, method);
   log(state, `${buyer.name} took ${getTile(position).name} for ${price}.`);
 }
 
@@ -177,6 +186,7 @@ async function resolveLanding(
         outcome.rentMultiplier,
         depth + 1,
       );
+      completeCardTransaction(state, outcome.transactionId);
       return;
     }
 
@@ -203,7 +213,7 @@ async function offerPurchase(
   if (decision.type !== 'BUY_PROPERTY') throw new Error('Expected a purchase decision');
 
   if (decision.buy && player.cash >= tile.price) {
-    transferFromBank(state, player.id, position, tile.price);
+    transferFromBank(state, player.id, position, tile.price, 'BANK_PURCHASE');
     return;
   }
   await auction(state, position, agents);
@@ -235,7 +245,7 @@ async function resolveJail(
   if (decision.type !== 'JAIL_DECISION') throw new Error('Expected a jail decision');
 
   if (decision.action === 'CARD' && useJailCard(state, player)) {
-    const dice = options.roll();
+    const dice = rollForState(state, options);
     return { steps: dice.total, earnedAnotherTurn: dice.isDouble };
   }
 
@@ -244,12 +254,12 @@ async function resolveJail(
     if (player.bankrupt) return null;
     player.inJail = false;
     player.jailTurns = 0;
-    const dice = options.roll();
+    const dice = rollForState(state, options);
     return { steps: dice.total, earnedAnotherTurn: dice.isDouble };
   }
 
   // Rolling for a double.
-  const dice = options.roll();
+  const dice = rollForState(state, options);
   if (dice.isDouble) {
     player.inJail = false;
     player.jailTurns = 0;
@@ -284,6 +294,8 @@ export async function takeTurn(
   const player = currentPlayer(state);
   if (player.bankrupt) return;
 
+  state.awaitingEndTurn = false;
+  state.lastCard = null;
   state.doublesCount = 0;
   state.hasRolled = false;
 
@@ -306,7 +318,7 @@ export async function takeTurn(
     state.pending = null;
     if (decision.type !== 'ROLL') throw new Error('Expected a roll');
 
-    const dice = options.roll();
+    const dice = rollForState(state, options);
     state.hasRolled = true;
     log(state, `${player.name} rolled ${dice.die1} and ${dice.die2}.`);
 

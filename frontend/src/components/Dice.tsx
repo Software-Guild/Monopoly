@@ -37,15 +37,15 @@ function DieFace({ value, className }: { value: number; className: string }) {
   );
 }
 
-function Die({ value, rolling, delay }: { value: number; rolling: boolean; delay: number }) {
-  const orientation = cubeOrientations[value];
+function Die({ value, rolling, delay }: { value: number | null; rolling: boolean; delay: number }) {
+  const orientation = value === null ? { rotateX: -18, rotateY: 28 } : cubeOrientations[value];
   return (
     <motion.div
       className="die-stage"
       animate={rolling ? { y: [0, -18, 0], scale: [1, 1.08, 1] } : { y: 0, scale: 1 }}
       transition={{ duration: 1.05, delay, ease: "easeInOut" }}
       role="img"
-      aria-label={`Die showing ${value}`}
+      aria-label={value === null ? "Die waiting for backend roll" : `Die showing ${value}`}
     >
       <motion.div
         className="die-cube"
@@ -62,6 +62,6 @@ function Die({ value, rolling, delay }: { value: number; rolling: boolean; delay
   );
 }
 
-export function Dice({ dice, rolling }: { dice: [number, number]; rolling: boolean }) {
-  return <div className="dice-pair"><Die value={dice[0]} rolling={rolling} delay={0} /><Die value={dice[1]} rolling={rolling} delay={0.08} /></div>;
+export function Dice({ dice, rolling }: { dice: [number, number] | null; rolling: boolean }) {
+  return <div className="dice-pair"><Die value={dice?.[0] ?? null} rolling={rolling} delay={0} /><Die value={dice?.[1] ?? null} rolling={rolling} delay={0.08} /></div>;
 }

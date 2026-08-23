@@ -1,309 +1,308 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
-import { boardData, getSpace } from "../data/boardData";
-import { drawCard } from "../data/cardData";
-import { createInitialGameState, gameReducer } from "../game/gameReducer";
-import {
-  calculateRent,
-  canBuild,
-  canBuildHotel,
-  canMortgage,
-  canSellBuilding,
-  canTradeProperty,
-  formatMoney,
-} from "../game/gameRules";
-import type { ActivityTone, GameCard, Player, PropertySpace, TradeOffer } from "../types/game";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { gameApi } from "../api/gameApi";
+import { boardData, purchasableSpaces } from "../data/boardData";
+import { canTradeProperty } from "../game/gameRules";
+import type {
+  BackendCard,
+  BackendGameState,
+  BackendPending,
+  BackendTradeSide,
+} from "../types/backend";
+import type {
+  ActivityTone,
+  GameCard,
+  GamePhase,
+  GameState,
+  Player,
+  PropertySpace,
+  TradeOffer,
+} from "../types/game";
 
-const wait = (duration: number): Promise<void> => new Promise((resolve) => window.setTimeout(resolve, duration));
-const rollDie = (): number => Math.floor(Math.random() * 6) + 1;
+const wait = (duration: number): Promise<void> =>
+  new Promise((resolve) => window.setTimeout(resolve, duration));
+
+const initialProperties = (): GameState["properties"] => Object.fromEntries(
+  purchasableSpaces.map((space) => [space.id, {
+    ownerId: null,
+    houses: 0,
+    hotel: false,
+    mortgaged: false,
+  }]),
+);
+
+const createInitialState = (players: Player[]): GameState => ({
+  players,
+  properties: initialProperties(),
+  currentPlayerIndex: 0,
+  phase: "RESOLVING_SPACE",
+  dice: null,
+  doublesCount: 0,
+  rollAgain: false,
+  activityLog: [{ id: "connecting", text: "Connecting to the backend game engine…", tone: "normal" }],
+  propertyLedger: [],
+  cardLedger: [],
+  pendingSpaceId: null,
+  selectedSpaceId: null,
+  auction: null,
+  trade: null,
+  debt: null,
+  winnerId: null,
+  turnSeconds: 120,
+});
+
+const phaseFor = (
+  backend: BackendGameState,
+  localTrade: TradeOffer | null,
+): GamePhase => {
+  if (backend.phase === "FINISHED") return "GAME_OVER";
+  if (localTrade) return "TRADING";
+  switch (backend.pending?.type) {
+    case "ROLL": return "WAITING_FOR_ROLL";
+    case "BUY_PROPERTY": return "PROPERTY_DECISION";
+    case "AUCTION_BID": return "AUCTION";
+    case "JAIL_DECISION": return "JAIL_DECISION";
+    case "RAISE_FUNDS": return "DEBT";
+    case "TRADE_OFFER": return "TRADING";
+    case "SETTLEMENT_OFFER":
+    case "MORTGAGED_TRANSFER": return "DEBT";
+    default: return backend.awaitingEndTurn ? "WAITING_FOR_END_TURN" : "RESOLVING_SPACE";
+  }
+};
+
+const toneFor = (text: string): ActivityTone => {
+  if (/bankrupt|Jail|owed/i.test(text)) return "danger";
+  if (/trade|offer/i.test(text)) return "trade";
+  if (/paid|bought|mortgag|built|sold|received|took/i.test(text)) return "money";
+  if (/double|auction|card|wins|standing/i.test(text)) return "important";
+  return "normal";
+};
+
+const pendingTrade = (pending: BackendPending | null): TradeOffer | null => {
+  if (!pending || pending.type !== "TRADE_OFFER") return null;
+  return {
+    id: `backend-${pending.proposerId}-${pending.playerId}`,
+    proposerId: pending.proposerId,
+    recipientId: pending.playerId,
+    offeredCash: pending.offered.cash,
+    requestedCash: pending.requested.cash,
+    offeredPropertyIds: pending.offered.positions,
+    requestedPropertyIds: pending.requested.positions,
+    offeredCards: pending.offered.cardIds.length,
+    requestedCards: pending.requested.cardIds.length,
+    status: "pending",
+  };
+};
+
+const adaptBackendState = (
+  backend: BackendGameState,
+  colors: ReadonlyMap<string, string>,
+  previous: GameState,
+  localTrade: TradeOffer | null,
+): GameState => {
+  const properties: GameState["properties"] = {};
+  for (const [position, holding] of Object.entries(backend.properties)) {
+    properties[Number(position)] = {
+      ownerId: holding.ownerId,
+      houses: holding.houses === 5 ? 0 : holding.houses,
+      hotel: holding.houses === 5,
+      mortgaged: holding.mortgaged,
+    };
+  }
+  const players: Player[] = backend.players.map((player) => ({
+    id: player.id,
+    name: player.name,
+    color: colors.get(player.id) ?? "#7C4DFF",
+    money: player.cash,
+    position: player.position,
+    inJail: player.inJail,
+    jailTurns: player.jailTurns,
+    getOutOfJailCards: player.heldCards.length,
+    bankrupt: player.bankrupt,
+  }));
+  const currentId = players[backend.currentPlayerIndex]?.id;
+  const previousCurrentId = previous.players[previous.currentPlayerIndex]?.id;
+  const pending = backend.pending;
+  const auction = pending?.type === "AUCTION_BID" ? {
+    spaceId: pending.position,
+    activeBidderId: pending.playerId,
+    passedIds: players.filter((player) => !pending.activeBidderIds.includes(player.id)).map((player) => player.id),
+    currentBid: pending.highestBid,
+    highestBidderId: pending.highestBidderId,
+  } : null;
+  const trade = localTrade ?? pendingTrade(pending);
+
+  return {
+    players,
+    properties,
+    currentPlayerIndex: backend.currentPlayerIndex,
+    phase: phaseFor(backend, localTrade),
+    dice: backend.lastDice ? [backend.lastDice.die1, backend.lastDice.die2] : null,
+    doublesCount: backend.doublesCount,
+    rollAgain: pending?.type === "ROLL" && pending.doublesSoFar > 0,
+    activityLog: [...backend.log].reverse().map((text, reverseIndex) => {
+      const originalIndex = backend.log.length - reverseIndex - 1;
+      const player = players.find((candidate) => text.includes(candidate.name));
+      return { id: `backend-log-${originalIndex}`, text, playerId: player?.id, tone: toneFor(text) };
+    }),
+    propertyLedger: backend.propertyTransfers.map((record) => ({
+      id: record.id,
+      sequence: record.sequence,
+      spaceId: record.position,
+      fromPlayerId: record.fromPlayerId,
+      toPlayerId: record.toPlayerId,
+      amount: record.amount,
+      method: record.method.toLowerCase().replace("_", "-") as GameState["propertyLedger"][number]["method"],
+    })),
+    cardLedger: backend.cardTransactions.map((record) => ({
+      id: record.id,
+      sequence: record.sequence,
+      cardId: record.cardId,
+      deck: record.deck === "CHANCE" ? "surprise" : "treasure",
+      title: record.title,
+      text: record.text,
+      effectType: record.effectType,
+      playerId: record.playerId,
+      positionBefore: record.positionBefore,
+      positionAfter: record.positionAfter,
+      inJailBefore: record.inJailBefore,
+      inJailAfter: record.inJailAfter,
+      retainedByPlayer: record.retainedByPlayer,
+      cashChanges: record.cashChanges,
+      propertyTransferIds: record.propertyTransferIds,
+      completed: record.completed,
+    })),
+    pendingSpaceId: pending?.type === "BUY_PROPERTY" ? pending.position : null,
+    selectedSpaceId: previous.selectedSpaceId,
+    auction,
+    trade,
+    debt: pending?.type === "RAISE_FUNDS" ? {
+      amount: pending.amount,
+      creditorId: pending.creditorId,
+      reason: "outstanding backend debt",
+    } : null,
+    winnerId: backend.winnerId,
+    turnSeconds: currentId === previousCurrentId ? previous.turnSeconds : 120,
+  };
+};
+
+const cardForUi = (card: BackendCard): GameCard => {
+  const base = {
+    id: card.id,
+    deck: card.deck === "CHANCE" ? "surprise" as const : "treasure" as const,
+    title: card.title,
+    text: card.text,
+  };
+  if (card.effect.type === "GO_TO_JAIL") return { ...base, type: "jail" };
+  if (card.effect.type === "GET_OUT_OF_JAIL_FREE") return { ...base, type: "getOutOfJail" };
+  if (card.effect.type.startsWith("MOVE")) {
+    return { ...base, type: "move", target: card.effect.position ?? 0 };
+  }
+  const sign = card.effect.type.startsWith("PAY") ? -1 : 1;
+  return { ...base, type: "money", amount: sign * (card.effect.amount ?? 0) };
+};
 
 export const useGameState = (initialPlayers: Player[]) => {
-  const [state, dispatch] = useReducer(gameReducer, initialPlayers, createInitialGameState);
+  const [state, setState] = useState<GameState>(() => createInitialState(initialPlayers));
   const [drawnCard, setDrawnCard] = useState<GameCard | null>(null);
-  const stateRef = useRef(state);
-  stateRef.current = state;
+  const [error, setError] = useState<string | null>(null);
+  const backendRef = useRef<BackendGameState | null>(null);
+  const localTradeRef = useRef<TradeOffer | null>(null);
+  const observedCardRef = useRef<string | null>(null);
+  const createRequestRef = useRef<Promise<{ state: BackendGameState }> | null>(null);
+  const colors = useMemo(
+    () => new Map(initialPlayers.map((player) => [player.id, player.color])),
+    [initialPlayers],
+  );
 
-  const currentPlayer = state.players[state.currentPlayerIndex];
-
-  const log = useCallback((text: string, playerId?: string, tone: ActivityTone = "normal") => {
-    dispatch({ type: "ADD_LOG", entry: { id: `${Date.now()}-${Math.random()}`, text, playerId, tone } });
-  }, []);
-
-  const finishResolution = useCallback(() => {
-    const latest = stateRef.current;
-    dispatch({ type: "SET_PHASE", phase: latest.rollAgain ? "WAITING_FOR_ROLL" : "WAITING_FOR_END_TURN" });
-    dispatch({ type: "SET_PENDING_SPACE", spaceId: null });
-  }, []);
-
-  const createDebtOrPay = useCallback((playerId: string, amount: number, creditorId: string | null, reason: string) => {
-    const latest = stateRef.current;
-    const payer = latest.players.find((player) => player.id === playerId);
-    if (!payer) return false;
-    if (payer.money >= amount) {
-      dispatch({ type: "TRANSFER_MONEY", fromId: playerId, toId: creditorId, amount });
-      return true;
+  const applyBackend = useCallback((backend: BackendGameState) => {
+    backendRef.current = backend;
+    setState((previous) => adaptBackendState(backend, colors, previous, localTradeRef.current));
+    if (!backend.lastCard) {
+      observedCardRef.current = null;
+    } else if (observedCardRef.current !== backend.lastCard.id) {
+      observedCardRef.current = backend.lastCard.id;
+      setDrawnCard(cardForUi(backend.lastCard));
     }
-    dispatch({ type: "SET_DEBT", debt: { amount, creditorId, reason } });
-    return false;
-  }, []);
+  }, [colors]);
 
-  const resolveSpace = useCallback(async (spaceId: number, diceTotal: number) => {
-    dispatch({ type: "SET_PHASE", phase: "RESOLVING_SPACE" });
-    dispatch({ type: "SET_PENDING_SPACE", spaceId });
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    const space = getSpace(spaceId);
-    log(`${player.name} landed on ${space.name}.`, player.id);
-
-    if (space.type === "property") {
-      const status = latest.properties[space.id];
-      if (!status.ownerId) {
-        dispatch({ type: "SET_PHASE", phase: "PROPERTY_DECISION" });
-        return;
-      }
-      if (status.ownerId === player.id || status.mortgaged) {
-        if (status.mortgaged) log(`${space.name} is mortgaged. No rent is due.`, player.id);
-        finishResolution();
-        return;
-      }
-      const rent = calculateRent(latest, space, diceTotal);
-      const owner = latest.players.find((candidate) => candidate.id === status.ownerId);
-      if (createDebtOrPay(player.id, rent, status.ownerId, `rent for ${space.name}`)) {
-        log(`${player.name} paid ${formatMoney(rent)} rent to ${owner?.name ?? "the owner"} for ${space.name}.`, player.id, "money");
-        finishResolution();
-      }
-      return;
-    }
-
-    if (space.type === "tax") {
-      const amount = space.amount ?? 0;
-      if (createDebtOrPay(player.id, amount, null, space.name)) {
-        log(`${player.name} paid ${formatMoney(amount)} ${space.name}.`, player.id, "money");
-        finishResolution();
-      }
-      return;
-    }
-
-    if (space.type === "surprise" || space.type === "treasure") {
-      setDrawnCard(drawCard(space.type));
-      return;
-    }
-
-    if (space.type === "goToJail") {
-      dispatch({ type: "SEND_TO_JAIL", playerId: player.id });
-      log(`${player.name} was sent directly to Jail.`, player.id, "danger");
-      return;
-    }
-
-    if (space.type === "vacation") log(`${player.name} is taking a quiet Vacation. No reward, no penalty.`, player.id);
-    if (space.type === "jail") log(`${player.name} is Just Visiting Jail.`, player.id);
-    finishResolution();
-  }, [createDebtOrPay, finishResolution, log]);
-
-  const moveBy = useCallback(async (playerId: string, steps: number, diceTotal: number) => {
-    dispatch({ type: "SET_PHASE", phase: "MOVING" });
-    for (let step = 0; step < steps; step += 1) {
-      const player = stateRef.current.players.find((candidate) => candidate.id === playerId);
-      if (!player) return;
-      const position = (player.position + 1) % 40;
-      const collectStart = position === 0;
-      dispatch({ type: "MOVE_STEP", playerId, position, collectStart });
-      if (collectStart) log(`${player.name} passed START and received ₹200.`, player.id, "money");
-      await wait(115);
-    }
-    const player = stateRef.current.players.find((candidate) => candidate.id === playerId);
-    if (player) await resolveSpace(player.position, diceTotal);
-  }, [log, resolveSpace]);
-
-  const rollDice = useCallback(async () => {
-    const latest = stateRef.current;
-    if (latest.phase !== "WAITING_FOR_ROLL") return;
-    const player = latest.players[latest.currentPlayerIndex];
-    dispatch({ type: "SET_PHASE", phase: "ROLLING" });
-    for (let frame = 0; frame < 7; frame += 1) {
-      dispatch({ type: "SET_DICE", dice: [rollDie(), rollDie()] });
-      await wait(95 + frame * 15);
-    }
-    const dice: [number, number] = [rollDie(), rollDie()];
-    const isDouble = dice[0] === dice[1];
-    const doublesCount = isDouble ? latest.doublesCount + 1 : 0;
-    dispatch({ type: "SET_ROLL_RESULT", dice, doublesCount, rollAgain: isDouble });
-    log(`${player.name} rolled ${dice[0] + dice[1]}${isDouble ? " — doubles!" : "."}`, player.id, isDouble ? "important" : "normal");
-    await wait(250);
-    if (doublesCount === 3) {
-      dispatch({ type: "SEND_TO_JAIL", playerId: player.id });
-      log(`${player.name} rolled three consecutive doubles and went to Jail.`, player.id, "danger");
-      return;
-    }
-    await moveBy(player.id, dice[0] + dice[1], dice[0] + dice[1]);
-  }, [log, moveBy]);
-
-  const buyPendingProperty = useCallback(() => {
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    const space = latest.pendingSpaceId === null ? null : getSpace(latest.pendingSpaceId);
-    if (!space || space.type !== "property" || player.money < space.price || latest.properties[space.id].ownerId) return;
-    dispatch({ type: "BUY_PROPERTY", playerId: player.id, spaceId: space.id, price: space.price });
-    log(`${player.name} bought ${space.name} for ${formatMoney(space.price)}.`, player.id, "money");
-    finishResolution();
-  }, [finishResolution, log]);
-
-  const startAuction = useCallback(() => {
-    const latest = stateRef.current;
-    if (latest.pendingSpaceId === null) return;
-    const activePlayers = latest.players.filter((player) => !player.bankrupt);
-    if (activePlayers.length === 0) return;
-    dispatch({
-      type: "START_AUCTION",
-      auction: { spaceId: latest.pendingSpaceId, activeBidderId: activePlayers[0].id, passedIds: [], currentBid: 0, highestBidderId: null },
+  useEffect(() => {
+    let active = true;
+    createRequestRef.current ??= gameApi.create(initialPlayers.map(({ id, name }) => ({ id, name })));
+    void createRequestRef.current.then((snapshot) => {
+      if (active) applyBackend(snapshot.state);
+    }).catch((reason: unknown) => {
+      if (active) setError(reason instanceof Error ? reason.message : "Could not create the backend game");
     });
-    log(`${getSpace(latest.pendingSpaceId).name} entered a Bank auction.`, undefined, "important");
-  }, [log]);
+    return () => { active = false; };
+  }, [applyBackend, initialPlayers]);
 
-  const nextAuctionBidder = useCallback((passedIds: string[], currentId: string) => {
-    const latest = stateRef.current;
-    const eligible = latest.players.filter((player) => !player.bankrupt && !passedIds.includes(player.id));
-    if (eligible.length === 0) return null;
-    const currentIndex = eligible.findIndex((player) => player.id === currentId);
-    return eligible[(currentIndex + 1 + eligible.length) % eligible.length];
-  }, []);
-
-  const auctionBid = useCallback((increment: number) => {
-    const latest = stateRef.current;
-    const auction = latest.auction;
-    if (!auction) return;
-    const bidder = latest.players.find((player) => player.id === auction.activeBidderId);
-    const bid = auction.currentBid + increment;
-    if (!bidder || bid > bidder.money || increment <= 0) return;
-    const next = nextAuctionBidder(auction.passedIds, bidder.id);
-    const updated = { ...auction, currentBid: bid, highestBidderId: bidder.id, activeBidderId: next?.id ?? bidder.id };
-    dispatch({ type: "UPDATE_AUCTION", auction: updated });
-    log(`${bidder.name} bid ${formatMoney(bid)}.`, bidder.id, "money");
-  }, [log, nextAuctionBidder]);
-
-  const auctionPass = useCallback(() => {
-    const latest = stateRef.current;
-    const auction = latest.auction;
-    if (!auction) return;
-    const bidder = latest.players.find((player) => player.id === auction.activeBidderId);
-    if (!bidder) return;
-    const passedIds = [...auction.passedIds, bidder.id];
-    const remaining = latest.players.filter((player) => !player.bankrupt && !passedIds.includes(player.id));
-    log(`${bidder.name} passed in the auction.`, bidder.id);
-
-    if ((auction.highestBidderId && remaining.length === 1 && remaining[0].id === auction.highestBidderId) || remaining.length === 0) {
-      const winner = latest.players.find((player) => player.id === auction.highestBidderId);
-      dispatch({ type: "RESOLVE_AUCTION", winnerId: auction.highestBidderId, spaceId: auction.spaceId, amount: auction.currentBid });
-      if (winner) log(`${winner.name} won ${getSpace(auction.spaceId).name} for ${formatMoney(auction.currentBid)}.`, winner.id, "important");
-      else log(`${getSpace(auction.spaceId).name} received no bids and remains with the Bank.`);
-      finishResolution();
+  const request = useCallback(async (
+    operation: (backend: BackendGameState) => Promise<{ state: BackendGameState }>,
+    animateDice = false,
+  ) => {
+    const backend = backendRef.current;
+    if (!backend) {
+      setError("The backend game is still initializing.");
       return;
     }
-    const next = nextAuctionBidder(passedIds, bidder.id);
-    if (next) dispatch({ type: "UPDATE_AUCTION", auction: { ...auction, passedIds, activeBidderId: next.id } });
-  }, [finishResolution, log, nextAuctionBidder]);
+    setError(null);
+    try {
+      if (animateDice) setState((previous) => ({ ...previous, phase: "ROLLING" }));
+      const snapshot = await operation(backend);
+      backendRef.current = snapshot.state;
+      if (animateDice) {
+        const dice = snapshot.state.lastDice;
+        setState((previous) => ({
+          ...previous,
+          dice: dice ? [dice.die1, dice.die2] : previous.dice,
+          phase: "ROLLING",
+        }));
+        await wait(1120);
+      }
+      applyBackend(snapshot.state);
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : "The backend rejected that action");
+      if (backendRef.current) applyBackend(backendRef.current);
+    }
+  }, [applyBackend]);
+
+  const submitDecision = useCallback((decision: object, animateDice = false) => {
+    void request((backend) => {
+      const playerId = backend.pending?.playerId;
+      if (!playerId) return Promise.reject(new Error("The backend is not waiting for a decision"));
+      return gameApi.decision(backend.id, playerId, decision);
+    }, animateDice);
+  }, [request]);
+
+  const rollDice = useCallback(() => submitDecision({ type: "ROLL" }, true), [submitDecision]);
+  const buyPendingProperty = useCallback(() => submitDecision({ type: "BUY_PROPERTY", buy: true }), [submitDecision]);
+  const startAuction = useCallback(() => submitDecision({ type: "BUY_PROPERTY", buy: false }), [submitDecision]);
+  const auctionBid = useCallback((increment: number) => {
+    const pending = backendRef.current?.pending;
+    if (pending?.type !== "AUCTION_BID") return;
+    submitDecision({ type: "AUCTION_BID", bid: pending.highestBid + increment });
+  }, [submitDecision]);
+  const auctionPass = useCallback(() => submitDecision({ type: "AUCTION_BID", bid: null }), [submitDecision]);
 
   const endTurn = useCallback(() => {
-    const latest = stateRef.current;
-    if (latest.phase !== "WAITING_FOR_END_TURN") return;
-    const endingPlayer = latest.players[latest.currentPlayerIndex];
-    dispatch({ type: "END_TURN" });
-    const nextIndex = (() => {
-      for (let offset = 1; offset <= latest.players.length; offset += 1) {
-        const index = (latest.currentPlayerIndex + offset) % latest.players.length;
-        if (!latest.players[index].bankrupt) return index;
-      }
-      return latest.currentPlayerIndex;
-    })();
-    log(`${endingPlayer.name} ended their turn. ${latest.players[nextIndex].name} is up next.`, latest.players[nextIndex].id);
-  }, [log]);
+    void request((backend) => {
+      const player = backend.players[backend.currentPlayerIndex];
+      if (!player) return Promise.reject(new Error("The backend has no current player"));
+      return gameApi.endTurn(backend.id, player.id);
+    });
+  }, [request]);
 
-  const handleCard = useCallback(async () => {
-    const card = drawnCard;
-    if (!card) return;
-    setDrawnCard(null);
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    log(`${player.name} drew “${card.title}”.`, player.id, "important");
-    if (card.type === "money") {
-      if (card.amount < 0 && player.money < Math.abs(card.amount)) {
-        dispatch({ type: "SET_DEBT", debt: { amount: Math.abs(card.amount), creditorId: null, reason: card.title } });
-        return;
-      }
-      dispatch({ type: "ADJUST_MONEY", playerId: player.id, amount: card.amount });
-      finishResolution();
-      return;
-    }
-    if (card.type === "getOutOfJail") {
-      dispatch({ type: "GRANT_JAIL_CARD", playerId: player.id });
-      finishResolution();
-      return;
-    }
-    if (card.type === "jail") {
-      dispatch({ type: "SEND_TO_JAIL", playerId: player.id });
-      log(`${player.name} went directly to Jail.`, player.id, "danger");
-      return;
-    }
-    const collectStart = card.target <= player.position;
-    dispatch({ type: "MOVE_DIRECT", playerId: player.id, position: card.target, collectStart });
-    if (collectStart) log(`${player.name} passed START and received ₹200.`, player.id, "money");
-    await wait(300);
-    await resolveSpace(card.target, stateRef.current.dice[0] + stateRef.current.dice[1]);
-  }, [drawnCard, finishResolution, log, resolveSpace]);
-
-  const jailPay = useCallback(() => {
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    if (!player.inJail || player.money < 50) return;
-    dispatch({ type: "RELEASE_FROM_JAIL", playerId: player.id, payFine: true, useCard: false });
-    log(`${player.name} paid ₹50 and left Jail.`, player.id, "money");
-  }, [log]);
-
-  const jailUseCard = useCallback(() => {
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    if (!player.inJail || player.getOutOfJailCards < 1) return;
-    dispatch({ type: "RELEASE_FROM_JAIL", playerId: player.id, payFine: false, useCard: true });
-    log(`${player.name} used a Get Out of Jail Free card.`, player.id, "important");
-  }, [log]);
-
-  const jailRoll = useCallback(async () => {
-    const latest = stateRef.current;
-    if (latest.phase !== "JAIL_DECISION") return;
-    const player = latest.players[latest.currentPlayerIndex];
-    dispatch({ type: "SET_PHASE", phase: "ROLLING" });
-    for (let frame = 0; frame < 6; frame += 1) {
-      dispatch({ type: "SET_DICE", dice: [rollDie(), rollDie()] });
-      await wait(110);
-    }
-    const dice: [number, number] = [rollDie(), rollDie()];
-    dispatch({ type: "SET_DICE", dice });
-    const total = dice[0] + dice[1];
-    if (dice[0] === dice[1]) {
-      dispatch({ type: "RELEASE_FROM_JAIL", playerId: player.id, payFine: false, useCard: false });
-      log(`${player.name} rolled doubles and left Jail.`, player.id, "important");
-      await moveBy(player.id, total, total);
-      return;
-    }
-    if (player.jailTurns >= 2) {
-      if (player.money >= 50) {
-        dispatch({ type: "RELEASE_FROM_JAIL", playerId: player.id, payFine: true, useCard: false });
-        log(`${player.name} completed three Jail turns, paid ₹50, and moved.`, player.id, "money");
-        await moveBy(player.id, total, total);
-      } else {
-        dispatch({ type: "SET_DEBT", debt: { amount: 50, creditorId: null, reason: "Jail fine" } });
-      }
-      return;
-    }
-    dispatch({ type: "FAIL_JAIL_ROLL", playerId: player.id });
-    log(`${player.name} did not roll doubles and remains in Jail.`, player.id);
-  }, [log, moveBy]);
+  const jailPay = useCallback(() => submitDecision({ type: "JAIL_DECISION", action: "PAY" }, true), [submitDecision]);
+  const jailUseCard = useCallback(() => submitDecision({ type: "JAIL_DECISION", action: "CARD" }, true), [submitDecision]);
+  const jailRoll = useCallback(() => submitDecision({ type: "JAIL_DECISION", action: "ROLL" }, true), [submitDecision]);
 
   const openTrade = useCallback((existing?: TradeOffer) => {
-    const latest = stateRef.current;
-    const proposer = latest.players[latest.currentPlayerIndex];
-    const recipient = latest.players.find((player) => !player.bankrupt && player.id !== proposer.id);
-    if (!recipient) return;
-    dispatch({ type: "SET_TRADE", trade: existing ?? {
+    const backend = backendRef.current;
+    if (!backend) return;
+    const proposer = backend.players[backend.currentPlayerIndex];
+    const recipient = backend.players.find((player) => !player.bankrupt && player.id !== proposer?.id);
+    if (!proposer || !recipient) return;
+    localTradeRef.current = existing ?? {
       id: `${Date.now()}`,
       proposerId: proposer.id,
       recipientId: recipient.id,
@@ -314,144 +313,114 @@ export const useGameState = (initialPlayers: Player[]) => {
       offeredCards: 0,
       requestedCards: 0,
       status: "editing",
-    } });
+    };
+    applyBackend(backend);
+  }, [applyBackend]);
+
+  const updateTrade = useCallback((trade: TradeOffer) => {
+    localTradeRef.current = trade;
+    const backend = backendRef.current;
+    if (backend) applyBackend(backend);
+  }, [applyBackend]);
+
+  const sideFor = useCallback((playerId: string, cash: number, positions: number[], cardCount: number): BackendTradeSide => {
+    const player = backendRef.current?.players.find((candidate) => candidate.id === playerId);
+    return { cash, positions, cardIds: player?.heldCards.slice(0, cardCount) ?? [] };
   }, []);
 
-  const updateTrade = useCallback((trade: TradeOffer) => dispatch({ type: "SET_TRADE", trade }), []);
-
   const sendTrade = useCallback(() => {
-    const trade = stateRef.current.trade;
+    const trade = localTradeRef.current;
     if (!trade) return;
-    dispatch({ type: "SET_TRADE", trade: { ...trade, status: "pending" } });
-    const proposer = stateRef.current.players.find((player) => player.id === trade.proposerId);
-    const recipient = stateRef.current.players.find((player) => player.id === trade.recipientId);
-    log(`${proposer?.name} created a trade with ${recipient?.name}.`, proposer?.id, "trade");
-  }, [log]);
+    localTradeRef.current = null;
+    void request((backend) => gameApi.action(backend.id, { type: "PROPOSE_TRADE", playerId: trade.proposerId, recipientId: trade.recipientId, offered: sideFor(trade.proposerId, trade.offeredCash, trade.offeredPropertyIds, trade.offeredCards), requested: sideFor(trade.recipientId, trade.requestedCash, trade.requestedPropertyIds, trade.requestedCards) }));
+  }, [request, sideFor]);
 
   const acceptTrade = useCallback(() => {
-    const latest = stateRef.current;
-    const trade = latest.trade;
-    if (!trade) return;
-    const proposer = latest.players.find((player) => player.id === trade.proposerId);
-    const recipient = latest.players.find((player) => player.id === trade.recipientId);
-    const ownershipValid = trade.offeredPropertyIds.every((id) => latest.properties[id]?.ownerId === trade.proposerId) &&
-      trade.requestedPropertyIds.every((id) => latest.properties[id]?.ownerId === trade.recipientId);
-    const assetsValid = ownershipValid && !!proposer && !!recipient && proposer.money >= trade.offeredCash && recipient.money >= trade.requestedCash &&
-      proposer.getOutOfJailCards >= trade.offeredCards && recipient.getOutOfJailCards >= trade.requestedCards;
-    if (!assetsValid) {
-      log("The trade became invalid because the available assets changed.", undefined, "danger");
-      dispatch({ type: "SET_TRADE", trade: null });
-      finishResolution();
-      return;
-    }
-    dispatch({ type: "ACCEPT_TRADE", trade });
-    log(`${recipient.name} accepted a trade from ${proposer.name}.`, recipient.id, "trade");
-    finishResolution();
-  }, [finishResolution, log]);
+    const pending = backendRef.current?.pending;
+    if (pending?.type !== "TRADE_OFFER") return;
+    void request((backend) => gameApi.action(backend.id, { type: "ACCEPT_TRADE", playerId: pending.playerId }));
+  }, [request]);
 
   const declineTrade = useCallback(() => {
-    const trade = stateRef.current.trade;
-    if (trade) {
-      const recipient = stateRef.current.players.find((player) => player.id === trade.recipientId);
-      log(`${recipient?.name} declined the trade.`, recipient?.id, "trade");
-    }
-    dispatch({ type: "SET_TRADE", trade: null });
-    finishResolution();
-  }, [finishResolution, log]);
+    const pending = backendRef.current?.pending;
+    if (pending?.type !== "TRADE_OFFER") return;
+    void request((backend) => gameApi.action(backend.id, { type: "DECLINE_TRADE", playerId: pending.playerId }));
+  }, [request]);
 
   const negotiateTrade = useCallback(() => {
-    const trade = stateRef.current.trade;
-    if (!trade) return;
+    const pending = backendRef.current?.pending;
+    if (pending?.type !== "TRADE_OFFER") return;
     const counter: TradeOffer = {
-      ...trade,
-      id: `${Date.now()}`,
-      proposerId: trade.recipientId,
-      recipientId: trade.proposerId,
-      offeredCash: trade.requestedCash,
-      requestedCash: trade.offeredCash,
-      offeredPropertyIds: trade.requestedPropertyIds,
-      requestedPropertyIds: trade.offeredPropertyIds,
-      offeredCards: trade.requestedCards,
-      requestedCards: trade.offeredCards,
+      id: "counter",
+      proposerId: pending.playerId,
+      recipientId: pending.proposerId,
+      offeredCash: pending.requested.cash,
+      requestedCash: pending.offered.cash,
+      offeredPropertyIds: pending.requested.positions,
+      requestedPropertyIds: pending.offered.positions,
+      offeredCards: pending.requested.cardIds.length,
+      requestedCards: pending.offered.cardIds.length,
       status: "editing",
     };
-    dispatch({ type: "SET_TRADE", trade: counter });
-    log("A counter-offer is being prepared.", counter.proposerId, "trade");
-  }, [log]);
+    void request(async (backend) => {
+      const snapshot = await gameApi.action(backend.id, { type: "DECLINE_TRADE", playerId: pending.playerId });
+      localTradeRef.current = counter;
+      return snapshot;
+    });
+  }, [request]);
 
   const propertyAction = useCallback((action: "build" | "sell" | "mortgage" | "unmortgage", space: PropertySpace) => {
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    const status = latest.properties[space.id];
-    if (status.ownerId !== player.id) return;
-    if (action === "build") {
-      if (canBuildHotel(latest, player.id, space)) {
-        dispatch({ type: "BUILD_HOTEL", playerId: player.id, spaceId: space.id, cost: space.houseCost ?? 0 });
-        log(`${player.name} built a hotel on ${space.name}.`, player.id, "important");
-      } else if (canBuild(latest, player.id, space)) {
-        dispatch({ type: "BUILD_HOUSE", playerId: player.id, spaceId: space.id, cost: space.houseCost ?? 0 });
-        log(`${player.name} built a house on ${space.name}.`, player.id, "money");
-      }
-      return;
-    }
-    if (action === "sell" && canSellBuilding(latest, player.id, space)) {
-      dispatch({ type: "SELL_BUILDING", playerId: player.id, spaceId: space.id, refund: (space.houseCost ?? 0) / 2 });
-      log(`${player.name} sold a building on ${space.name} for ${formatMoney((space.houseCost ?? 0) / 2)}.`, player.id, "money");
-      return;
-    }
-    if (action === "mortgage" && canMortgage(latest, player.id, space)) {
-      dispatch({ type: "MORTGAGE", playerId: player.id, spaceId: space.id, value: space.mortgageValue });
-      log(`${player.name} mortgaged ${space.name} for ${formatMoney(space.mortgageValue)}.`, player.id, "money");
-      return;
-    }
-    const repayment = Math.ceil(space.mortgageValue * 1.1);
-    if (action === "unmortgage" && status.mortgaged && player.money >= repayment) {
-      dispatch({ type: "UNMORTGAGE", playerId: player.id, spaceId: space.id, cost: repayment });
-      log(`${player.name} repaid ${formatMoney(repayment)} to unmortgage ${space.name}.`, player.id, "money");
-    }
-  }, [log]);
-
-  const settleDebt = useCallback(() => {
-    const latest = stateRef.current;
-    const debt = latest.debt;
-    const player = latest.players[latest.currentPlayerIndex];
-    if (!debt || player.money < debt.amount) return;
-    dispatch({ type: "TRANSFER_MONEY", fromId: player.id, toId: debt.creditorId, amount: debt.amount });
-    dispatch({ type: "SET_DEBT", debt: null });
-    log(`${player.name} settled ${formatMoney(debt.amount)} owed for ${debt.reason}.`, player.id, "money");
-    finishResolution();
-  }, [finishResolution, log]);
+    const backend = backendRef.current;
+    const player = backend?.players[backend.currentPlayerIndex];
+    if (!backend || !player) return;
+    const type = ({ build: "BUILD", sell: "SELL_BUILDING", mortgage: "MORTGAGE", unmortgage: "UNMORTGAGE" } as const)[action];
+    void request((current) => gameApi.action(current.id, { type, playerId: player.id, position: space.id }));
+  }, [request]);
 
   const bankrupt = useCallback(() => {
-    const latest = stateRef.current;
-    const player = latest.players[latest.currentPlayerIndex];
-    dispatch({ type: "BANKRUPT", playerId: player.id, creditorId: latest.debt?.creditorId ?? null });
-    log(`${player.name} filed for bankruptcy and left the game.`, player.id, "danger");
-  }, [log]);
+    const backend = backendRef.current;
+    const player = backend?.players[backend.currentPlayerIndex];
+    if (!backend || !player) return;
+    if (backend.pending?.type === "RAISE_FUNDS" && backend.pending.playerId === player.id) {
+      submitDecision({ type: "RAISE_FUNDS", action: "BANKRUPT" });
+      return;
+    }
+    void request((current) => gameApi.action(current.id, { type: "BANKRUPT", playerId: player.id }));
+  }, [request, submitDecision]);
+
+  const closeTrade = useCallback(() => {
+    if (localTradeRef.current) {
+      localTradeRef.current = null;
+      const backend = backendRef.current;
+      if (backend) applyBackend(backend);
+      return;
+    }
+    declineTrade();
+  }, [applyBackend, declineTrade]);
 
   useEffect(() => {
-    const timer = window.setInterval(() => dispatch({ type: "TICK_TIMER" }), 1000);
+    const timer = window.setInterval(() => {
+      setState((previous) => ({ ...previous, turnSeconds: Math.max(0, previous.turnSeconds - 1) }));
+    }, 1000);
     return () => window.clearInterval(timer);
   }, []);
 
-  useEffect(() => {
-    window.localStorage.setItem("india-tycoon-game", JSON.stringify(state));
-  }, [state]);
-
   const tradeableProperties = useMemo(() => boardData.filter((space): space is PropertySpace =>
     space.type === "property" && canTradeProperty(state, space)), [state]);
+  const currentPlayer = state.players[state.currentPlayerIndex] ?? state.players[0]!;
 
   return {
     state,
     currentPlayer,
     drawnCard,
+    error,
     rollDice,
     buyPendingProperty,
     startAuction,
     auctionBid,
     auctionPass,
     endTurn,
-    handleCard,
+    handleCard: () => setDrawnCard(null),
     jailPay,
     jailUseCard,
     jailRoll,
@@ -462,11 +431,11 @@ export const useGameState = (initialPlayers: Player[]) => {
     declineTrade,
     negotiateTrade,
     propertyAction,
-    settleDebt,
+    settleDebt: () => setError("Debt resolution is controlled by the backend engine."),
     bankrupt,
-    selectSpace: (spaceId: number | null) => dispatch({ type: "SELECT_SPACE", spaceId }),
-    closeTrade: () => { dispatch({ type: "SET_TRADE", trade: null }); finishResolution(); },
-    addTime: () => dispatch({ type: "ADD_TIME" }),
+    selectSpace: (spaceId: number | null) => setState((previous) => ({ ...previous, selectedSpaceId: spaceId })),
+    closeTrade,
+    addTime: () => setState((previous) => ({ ...previous, turnSeconds: previous.turnSeconds + 60 })),
     tradeableProperties,
   };
 };

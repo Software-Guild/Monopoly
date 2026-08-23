@@ -13,6 +13,7 @@ import cors from 'cors';
 import { Pool } from 'pg';
 
 import authRoutes from './api/routes/auth.routes';
+import gameRoutes from './api/routes/game.routes';
 import usernameBloomFilter from './models/bloomFilter';
 import prisma from './models/prismaClient';
 
@@ -33,7 +34,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cors({
-  origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()) || 'http://localhost:5173',
+  origin: process.env.CORS_ORIGIN?.split(',').map((origin) => origin.trim()) || [
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+  ],
   credentials: true,
 }));
 
@@ -50,9 +54,9 @@ if (isProduction) {
 // A dedicated `pg` Pool is used for the session store (separate from
 // Prisma's own connection pool, since connect-pg-simple talks to
 // Postgres directly with raw SQL rather than through Prisma Client).
-const sessionPool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
+const sessionPool = process.env.DATABASE_URL
+  ? new Pool({ connectionString: process.env.DATABASE_URL })
+  : null;
 
 if (!process.env.SESSION_SECRET) {
   console.warn(
@@ -63,13 +67,15 @@ if (!process.env.SESSION_SECRET) {
 
 app.use(
   session({
-    store: new pgSession({
-      pool: sessionPool,
-      tableName: 'session', // matches the Session model's @@map("session")
-      createTableIfMissing: true,
-    }),
+    ...(sessionPool ? {
+      store: new pgSession({
+        pool: sessionPool,
+        tableName: 'session', // matches the Session model's @@map("session")
+        createTableIfMissing: true,
+      }),
+    } : {}),
     name: process.env.SESSION_COOKIE_NAME || 'monopoly.sid',
-    secret: process.env.SESSION_SECRET as string, // required — see .env.example
+    secret: process.env.SESSION_SECRET || 'local-development-session-secret',
     resave: false,
     saveUninitialized: false,
     rolling: true, // refresh cookie expiry on every request
@@ -90,6 +96,7 @@ app.get('/health', (req: Request, res: Response) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/game', gameRoutes);
 
 // Fallback 404 handler
 app.use((req: Request, res: Response) => {
@@ -99,7 +106,8 @@ app.use((req: Request, res: Response) => {
 // Generic error handler (catches synchronous errors thrown in routes)
 app.use((err: Error, req: Request, res: Response, _next: NextFunction) => {
   console.error('[unhandled error]', err);
-  res.status(500).json({ success: false, message: 'Internal server error' });
+  const status = err.name === 'NotFoundError' ? 404 : 400;
+  res.status(status).json({ success: false, message: err.message || 'Request failed' });
 });
 
 // ---------------------------------------------------------------------
@@ -110,7 +118,11 @@ async function start(): Promise<void> {
     // Populate the Bloom filter with existing usernames before the
     // server starts accepting requests, so the very first
     // /check-username call is already fast and accurate.
-    await usernameBloomFilter.init(prisma);
+    if (process.env.DATABASE_URL) {
+      await usernameBloomFilter.init(prisma);
+    } else {
+      console.warn('[index] DATABASE_URL is not set; auth persistence is disabled for this local run.');
+    }
 
     app.listen(PORT, () => {
       console.log(`[index] Monopoly backend listening on port ${PORT}`);
@@ -127,7 +139,7 @@ start();
 process.on('SIGTERM', async () => {
   console.log('[index] SIGTERM received, shutting down...');
   await prisma.$disconnect();
-  await sessionPool.end();
+  await sessionPool?.end();
   process.exit(0);
 });
 
