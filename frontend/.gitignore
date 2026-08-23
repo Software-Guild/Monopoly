@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+
+# Production and local build output
+dist/
+dist-ssr/
+.vite/
+coverage/
+
+# TypeScript caches
+*.tsbuildinfo
+
+# Local environment files (keep examples committed)
+.env
+.env.*
+!.env.example
+
+# Package-manager and development logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local browser and visual-QA artifacts
+.chrome-*/
+.edge-*/
+qa-*.png
+
+# Editors and operating systems
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Temporary files
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
