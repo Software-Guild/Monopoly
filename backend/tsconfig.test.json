@@ -1,0 +1,17 @@
+{
+  // Typecheck-only config.
+  //
+  // tsconfig.json is the build, and is left exactly as it is on main:
+  // rootDir ./app so that `npm run build` still emits dist/index.js for
+  // `npm start`. Tests live outside app/, so they cannot be added to that
+  // config without moving the build output. This one widens the net to
+  // cover tests as well and emits nothing.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false
+  },
+  "include": ["app/**/*", "tests/**/*"]
+}

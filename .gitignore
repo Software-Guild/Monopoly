@@ -42,3 +42,5 @@ Thumbs.db
 .turbo/
 
 rulebook.md
+# From main: explicit, though the .env rule above already covers it
+backend/.env
